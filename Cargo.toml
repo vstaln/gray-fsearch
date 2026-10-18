@@ -1,0 +1,45 @@
+[workspace]
+members = [".", "crates/fsearch"]
+
+[package]
+name = "gray-fsearch"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.91"
+license = "MIT"
+repository = "https://github.com/vstaln/gray-fsearch"
+description = "File/content search over a persistent fsearch index — grep/rg PATH shims, find/grep verbs, unix-socket answer server."
+
+[dependencies]
+fsearch = { path = "crates/fsearch" }
+anyhow = "1"
+async-trait = "0.1"
+base64 = "0.22"
+globset = "0.4"
+ignore = "0.4"
+libc = "0.2"
+log = "0.4"
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tempfile = "3"
+tokio = { version = "1", features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "sync", "time"] }
+tokio-util = "0.7"
+
+[lib]
+name = "fsearch_plugin"
+path = "src/lib.rs"
+
+[[bin]]
+name = "gray-fsearch"
+path = "src/main.rs"
+
+[profile.release]
+strip = true
+
+# Dev builds: full DWARF bloats the binary and every edit pays the link.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
