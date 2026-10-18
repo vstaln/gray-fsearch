@@ -13,6 +13,8 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+      - name: Install ripgrep (differential tests run the real rg)
+        run: sudo -n apt-get update && sudo -n apt-get install -y ripgrep
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
