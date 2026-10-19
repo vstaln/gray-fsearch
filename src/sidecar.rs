@@ -70,11 +70,32 @@ fn ensure_shim_dir() {
             .is_ok_and(|t| t == me);
         if !ok {
             let _ = std::fs::remove_file(&link);
-            if let Err(e) = std::os::unix::fs::symlink(&me, &link) {
+            if let Err(e) = link_shim(&me, &link) {
                 eprintln!("fsearch: cannot link {}: {e}", link.display());
             }
         }
     }
+}
+
+/// `me` → `link`, one shim symlink. Windows symlink_file needs the
+/// developer-mode privilege — a failure only loses the fast path (the real
+/// tools still run), same as a unix symlink error.
+#[cfg(unix)]
+fn link_shim(me: &Path, link: &Path) -> std::io::Result<()> {
+    std::os::unix::fs::symlink(me, link)
+}
+
+#[cfg(windows)]
+fn link_shim(me: &Path, link: &Path) -> std::io::Result<()> {
+    std::os::windows::fs::symlink_file(me, link)
+}
+
+#[cfg(not(any(unix, windows)))]
+fn link_shim(_: &Path, _: &Path) -> std::io::Result<()> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "shim symlinks unsupported on this platform",
+    ))
 }
 
 /// Is a server already answering on `sock`? Connect-only: a dead owner
@@ -83,6 +104,11 @@ fn ensure_shim_dir() {
 #[cfg(unix)]
 pub fn socket_alive(sock: &Path) -> bool {
     std::os::unix::net::UnixStream::connect(sock).is_ok()
+}
+
+#[cfg(not(unix))]
+pub fn socket_alive(_: &Path) -> bool {
+    false
 }
 
 /// Project root the socket server indexes/watches: the git (or jj)

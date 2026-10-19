@@ -45,12 +45,9 @@ async fn real_main() -> anyhow::Result<()> {
             Ok(())
         }
         Some("sidecar") => fsearch_plugin::sidecar::run(),
-        #[cfg(unix)]
         Some("find") => run_find(&args[1..]).await,
-        #[cfg(unix)]
         Some("grep") => run_grep(&args[1..]).await,
         Some("status") => run_status(),
-        #[cfg(target_os = "linux")]
         Some("serve") => run_serve(&args[1..]),
         Some("-h") | Some("--help") | Some("help") => {
             print!("{HELP}");
@@ -179,11 +176,22 @@ async fn run_grep(args: &[String]) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[cfg(not(unix))]
+async fn run_find(_: &[String]) -> anyhow::Result<()> {
+    anyhow::bail!("fsearch find is not supported on this platform (unix only)")
+}
+
+#[cfg(not(unix))]
+async fn run_grep(_: &[String]) -> anyhow::Result<()> {
+    anyhow::bail!("fsearch grep is not supported on this platform (unix only)")
+}
+
 fn run_status() -> anyhow::Result<()> {
     use serde_json::{Value, json};
     let base = fsearch_plugin::sidecar::base_dir();
     let sock = fsearch_plugin::sidecar::socket_path();
     let bin = fsearch_plugin::sidecar::bin_dir();
+    #[cfg(unix)]
     let index = base.as_ref().and_then(|d| {
         let p = d.join("index.bin");
         fsearch::index::Index::load(&p).map(|i| {
@@ -191,6 +199,8 @@ fn run_status() -> anyhow::Result<()> {
                 std::fs::metadata(&p).map(|m| m.len()).unwrap_or(0)})
         })
     });
+    #[cfg(not(unix))]
+    let index: Option<Value> = None;
     let shims = |d: &Option<PathBuf>| -> Value {
         d.iter()
             .flat_map(|d| ["grep", "rg"].into_iter().map(move |t| (d.join(t), t)))
@@ -246,4 +256,9 @@ fn run_serve(args: &[String]) -> anyhow::Result<()> {
     };
     fsearch_plugin::search_serve::serve(&root, &sock, index_dir.as_deref())
         .map_err(|e| anyhow::anyhow!("{e}"))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn run_serve(_: &[String]) -> anyhow::Result<()> {
+    anyhow::bail!("fsearch serve is not supported on this platform (linux only)")
 }
