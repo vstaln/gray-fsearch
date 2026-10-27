@@ -3,9 +3,10 @@
 //! On startup the sidecar lays down the PATH shims
 //! (~/.gray/fsearch/bin/{grep,rg} → this binary) and binds the fixed
 //! search socket at ~/.gray/fsearch/search.sock, serving it from the
-//! session root (git worktree of the launch cwd, else cwd). Another live
-//! sidecar already holding the socket wins — this copy just runs the wire
-//! loop, and shims keep working through whichever server owns the socket.
+//! session root (git worktree of the launch cwd, else cwd). Exactly one
+//! live sidecar serves, chosen by an exclusive flock on serve.lock; the
+//! rest poll for it and take over when the owning session exits, so shims
+//! never fall back to full-tree walks just because the first session quit.
 
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
@@ -109,17 +110,51 @@ fn pick_index_dir(root: &Path) -> Option<PathBuf> {
     (!inside).then_some(base)
 }
 
+/// How often a non-serving sidecar retries for the server role.
+#[cfg(target_os = "linux")]
+const TAKEOVER_POLL: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// Keep exactly one live sidecar serving the search socket.
+///
+/// The server role is an exclusive flock on ~/.gray/fsearch/serve.lock, not
+/// a connect() probe: the kernel drops the lock when the owning session
+/// exits, so another live sidecar takes over within one poll instead of
+/// every shim silently falling back to a full-tree walk until a new session
+/// starts. Holding the lock also stops two sidecars racing remove+bind on
+/// the socket path.
 #[cfg(target_os = "linux")]
 fn spawn_server() {
-    let Some(sock) = socket_path() else { return };
-    if socket_alive(&sock) {
+    let (Some(sock), Some(base)) = (socket_path(), base_dir()) else {
         return;
-    }
+    };
     let root = session_root();
     let index_dir = pick_index_dir(&root);
     std::thread::spawn(move || {
-        if let Err(e) = crate::search_serve::serve(&root, &sock, index_dir.as_deref()) {
-            eprintln!("fsearch: search server on {} failed: {e}", sock.display());
+        let _ = std::fs::create_dir_all(&base);
+        let lock_path = base.join("serve.lock");
+        let mut reported = false;
+        loop {
+            let lock = std::fs::OpenOptions::new()
+                .create(true)
+                .truncate(false)
+                .write(true)
+                .open(&lock_path);
+            // A live server without the lock is a pre-serve.lock sidecar
+            // mid-upgrade: leave it be rather than stealing its socket.
+            if let Ok(lock) = lock
+                && lock.try_lock().is_ok()
+                && !socket_alive(&sock)
+            {
+                // serve() only returns on failure; the lock drops with
+                // `lock` at the end of this block so a peer can try.
+                if let Err(e) = crate::search_serve::serve(&root, &sock, index_dir.as_deref())
+                    && !reported
+                {
+                    eprintln!("fsearch: search server on {} failed: {e}", sock.display());
+                    reported = true;
+                }
+            }
+            std::thread::sleep(TAKEOVER_POLL);
         }
     });
 }
