@@ -86,11 +86,16 @@ fn argv_and_wire_manifest_agree() {
     );
     assert_eq!(argv_manifest["name"], "fsearch");
     assert_eq!(argv_manifest["protocol"], "1.1");
+    let sock = argv_manifest["shell_env"]["vars"]["GRAY_SEARCH_SOCK"]
+        .as_str()
+        .expect("shell_env carries GRAY_SEARCH_SOCK");
+    assert!(sock.ends_with("search.sock"), "socket path: {sock}");
+    #[cfg(unix)]
+    assert!(sock.starts_with('/'), "socket path: {sock}");
+    #[cfg(windows)]
     assert!(
-        argv_manifest["shell_env"]["vars"]["GRAY_SEARCH_SOCK"]
-            .as_str()
-            .is_some_and(|s| s.ends_with("search.sock") && s.starts_with('/')),
-        "shell_env must carry an absolute socket path"
+        std::path::Path::new(sock).is_absolute(),
+        "socket path: {sock}"
     );
 }
 
