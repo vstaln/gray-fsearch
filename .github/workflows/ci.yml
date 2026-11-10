@@ -19,6 +19,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Install ripgrep (differential tests run the real rg)
+        shell: bash
         run: |
           if [ "$RUNNER_OS" = "Linux" ]; then sudo -n apt-get update && sudo -n apt-get install -y ripgrep;
           elif [ "$RUNNER_OS" = "Windows" ]; then choco install ripgrep -y;
